@@ -1,52 +1,62 @@
 /**
- * LegalOS Enterprise Unified Backend Server
- * Bundles Multi-Tenant REST APIs, Real-time SSE Stream, Object Storage, and Baileys WhatsApp Gateway.
+ * LegalOS Standalone Baileys WhatsApp Gateway Server
  */
-
 import express from 'express';
 import cors from 'cors';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { tenantContextMiddleware } from './middleware/tenantIsolation.js';
-import { apiRouter, broadcastTenantEvent } from './api/routes.js';
 import { whatsappRouter, startWhatsApp } from './whatsapp-gateway.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const app = express();
-app.use(cors());
-app.use(express.json());
 
-// Mount WhatsApp Gateway router directly
-app.use('/api/whatsapp', whatsappRouter);
+const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS || 'http://localhost:5173')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
 
-// Mount Multi-Tenant Middleware on other API routes
-app.use('/api', tenantContextMiddleware);
-app.use('/api', apiRouter);
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (configuredOrigins.includes(origin)) return callback(null, true);
+    if (/^https:\/\/.*\.vercel\.app$/.test(origin)) return callback(null, true);
+    if (/^https:\/\/.*\.back4app\.io$/.test(origin)) return callback(null, true);
+    if (/^https:\/\/.*\.b4a\.run$/.test(origin)) return callback(null, true);
+    if (/^http:\/\/localhost:\d+$/.test(origin)) return callback(null, true);
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id', 'x-session-id', 'x-user-role', 'x-admin-role', 'x-target-tenant-id']
+}));
 
-// Health Check Endpoint
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
 app.get('/health', (req, res) => {
   res.json({
-    status: 'ONLINE',
-    system: 'LegalOS Enterprise Platform Engine',
-    version: '2026.3.0-PROD',
-    timestamp: new Date().toISOString()
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    service: 'LegalOS Baileys WhatsApp Gateway',
+    environment: process.env.NODE_ENV || 'production',
+    version: '2.5.0'
   });
 });
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+app.get('/', (req, res) => {
+  res.json({ status: 'online', service: 'LegalOS Baileys WhatsApp Gateway' });
+});
+
+app.use('/api/whatsapp', whatsappRouter);
+app.use('/whatsapp', whatsappRouter);
+
+const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0';
+
+app.listen(PORT, HOST, () => {
   console.log(`=======================================================`);
-  console.log(`⚖️  LegalOS Enterprise Multi-Tenant Server Online`);
-  console.log(`🌐  API Gateway: http://localhost:${PORT}/api`);
-  console.log(`📲  WhatsApp Gateway: http://localhost:${PORT}/api/whatsapp`);
-  console.log(`📡  SSE Real-time Bus: http://localhost:${PORT}/api/events/stream`);
-  console.log(`🏥  Health Check: http://localhost:${PORT}/health`);
+  console.log(`⚖️  LegalOS Baileys WhatsApp Standalone Gateway Online`);
+  console.log(`📲  WhatsApp Gateway: http://0.0.0.0:${PORT}/api/whatsapp`);
+  console.log(`🏥  Health Check: http://0.0.0.0:${PORT}/health`);
   console.log(`=======================================================`);
 
-  // Initialize WhatsApp Baileys engine in background
   startWhatsApp().catch(err => console.warn('Baileys initial connect note:', err.message));
 });
 
